@@ -20,12 +20,12 @@ are the configuration values:
 )
 
 type Application struct {
-	OnosConnectUrl     string `default:"http://karaf:karaf@127.0.0.1:8181" envconfig:"ONOS_CONNECT_URL" desc:"URL with which to connect to ONOS"`
-	OvsDpid            string `default:"of:00000800276f723f" envconfig:"OVS_DPID" desc:"DPID of switch to manager"`
-	CreateFlowTemplate string `default:"/var/templates/create.tmpl" envconfig:"CREATE_FLOW_TEMPLATE" desc:"Template file used to create flow rule in ONOS"`
-	Interval	   time.Duration `default:"30s" envconfig:"INTERVAL" desc:"Frequency to check for correct flows"`
-	LogLevel           string `default:"warning" envconfig:"LOG_LEVEL" desc:"detail level for logging"`
-	LogFormat          string `default:"text" envconfig:"LOG_FORMAT" desc:"log output format, text or json"`
+	OnosConnectUrl     string        `default:"http://karaf:karaf@127.0.0.1:8181" envconfig:"ONOS_CONNECT_URL" desc:"URL with which to connect to ONOS"`
+	OvsDpid            string        `default:"of:00000800276f723f" envconfig:"OVS_DPID" desc:"DPID of switch to manager"`
+	CreateFlowTemplate string        `default:"/var/templates/create.tmpl" envconfig:"CREATE_FLOW_TEMPLATE" desc:"Template file used to create flow rule in ONOS"`
+	Interval           time.Duration `default:"30s" envconfig:"INTERVAL" desc:"Frequency to check for correct flows"`
+	LogLevel           string        `default:"warning" envconfig:"LOG_LEVEL" desc:"detail level for logging"`
+	LogFormat          string        `default:"text" envconfig:"LOG_FORMAT" desc:"log output format, text or json"`
 }
 
 var log = logrus.New()
@@ -72,7 +72,7 @@ func main() {
 	for {
 		log.Infof("Synchronize required S-TAG VIDs from ONOS to OVS switch %s", app.OvsDpid)
 		app.Synchronize()
-                log.Info("COMPLETE")
+		log.Info("COMPLETE")
 		time.Sleep(app.Interval)
 	}
 }

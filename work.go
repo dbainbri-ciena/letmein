@@ -1,14 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/Jeffail/gabs"
 	"net/http"
+	"path"
 	"strconv"
 	"text/template"
-	"path"
-	"bytes"
 )
 
 const (
@@ -141,12 +141,12 @@ func (app *Application) Synchronize() {
 		if err != nil {
 			log.Warnf("Unable to execute create rule template: %s", err)
 		}
-                resp, err := http.Post(fmt.Sprintf(FLOWS_URL, app.OnosConnectUrl, app.OvsDpid), "application/json", buf)
+		resp, err := http.Post(fmt.Sprintf(FLOWS_URL, app.OnosConnectUrl, app.OvsDpid), "application/json", buf)
 		if err != nil {
 			log.Errorf("Error while POSTing rule add to ONOS : %s", err)
 			continue
 		}
-		if int(resp.StatusCode / 100) != 2 {
+		if int(resp.StatusCode/100) != 2 {
 			log.Errorf("Error response code while POSTing rule to ONOS : %s", resp.Status)
 			continue
 		}
