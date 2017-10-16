@@ -1,0 +1,27 @@
+{
+    "priority": 32768,
+    "appId" : "{{.AppId}}"
+    "timeout": 0,
+    "isPermanent": true,
+    "deviceId": "{{.DPID}}"
+    "treatment": {
+        "instructions": [
+            {
+                "type": "OUTPUT",
+                "port": "CONTROLLER"
+            }
+        ]
+    },
+    "selector": {
+        "criteria": [
+            {
+                "type": "IN_PORT",
+                "port": "1"
+            },
+            {
+                "type": "VLAN_VID",
+		"vlanId": "{{.VlanId}}"
+            }
+        ]
+    }
+}
