@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"github.com/Jeffail/gabs"
 	"net/http"
-	"os"
 	"strconv"
 	"text/template"
+	"path"
+	"bytes"
 )
 
 const (
@@ -59,16 +60,19 @@ func (app *Application) Synchronize() {
 			vlan := device.Search(ACCESS_DEVICE, VLAN).Data()
 
 			if val, ok := vlan.(string); ok {
-				need[val] = true
+				need[val] = false
 			} else if _, ok := vlan.(float64); ok {
 				val := strconv.Itoa(int(vlan.(float64)))
 				need[val] = false
 			}
 		}
 	}
-	need["2"] = false
-	need["6"] = false
-	log.Debugf("NEED: %+v\n", need)
+
+	keys := make([]string, len(need))
+	for key, _ := range need {
+		keys = append(keys, key)
+	}
+	log.Debugf("Need rules for VLANs %v", keys)
 
 	// Fetch the current rules on the switch
 	resp, err = http.Get(fmt.Sprintf(FLOWS_URL, app.OnosConnectUrl, app.OvsDpid))
@@ -105,7 +109,7 @@ func (app *Application) Synchronize() {
 					need[vlan] = true
 				} else {
 					// Rule is not needed, delete it
-					log.Debugf("DELETE: %s\n", flow.Path("id"))
+					log.Infof("[DELETE]: VLAN %s rule", flow.Path("id"))
 				}
 			}
 		}
@@ -113,25 +117,38 @@ func (app *Application) Synchronize() {
 
 	// Iterate over all the required VLANs and if we don't have a rule for them
 	// then add them
-	rule := template.New(app.CreateFlowTemplate)
+	rule := template.New(path.Base(app.CreateFlowTemplate))
 	_, err = rule.ParseFiles(app.CreateFlowTemplate)
 	if err != nil {
 		log.Warnf("Unable to parse rule creation template '%s' : %s", app.CreateFlowTemplate, err)
+		return
 	}
 	for vlan, have := range need {
 		if have {
-			log.Printf("Have rule for VLAN %s, no action\n", vlan)
+			log.Debugf("[EXISTS] VLAN %s rule", vlan)
 			continue
 		}
-		log.Printf("Need rule for VLAN %s, create\n", vlan)
+		log.Infof("[CREATE] VLAN %s rule", vlan)
 		data := RuleData{
 			AppId:  APP_ID,
 			DPID:   app.OvsDpid,
 			VlanId: vlan,
 		}
-		err := rule.Execute(os.Stdout, &data)
+
+		// Create a POST to ONOS
+		buf := bytes.NewBuffer(nil)
+		err := rule.Execute(buf, &data)
 		if err != nil {
-			log.Printf("ERROR: %s\n", err)
+			log.Warnf("Unable to execute create rule template: %s", err)
+		}
+                resp, err := http.Post(fmt.Sprintf(FLOWS_URL, app.OnosConnectUrl, app.OvsDpid), "application/json", buf)
+		if err != nil {
+			log.Errorf("Error while POSTing rule add to ONOS : %s", err)
+			continue
+		}
+		if int(resp.StatusCode / 100) != 2 {
+			log.Errorf("Error response code while POSTing rule to ONOS : %s", resp.Status)
+			continue
 		}
 	}
 }

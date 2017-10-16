@@ -7,6 +7,7 @@ import (
 	"github.com/kelseyhightower/envconfig"
 	"os"
 	"text/tabwriter"
+	"time"
 )
 
 const (
@@ -22,6 +23,7 @@ type Application struct {
 	OnosConnectUrl     string `default:"http://karaf:karaf@127.0.0.1:8181" envconfig:"ONOS_CONNECT_URL" desc:"URL with which to connect to ONOS"`
 	OvsDpid            string `default:"of:00000800276f723f" envconfig:"OVS_DPID" desc:"DPID of switch to manager"`
 	CreateFlowTemplate string `default:"/var/templates/create.tmpl" envconfig:"CREATE_FLOW_TEMPLATE" desc:"Template file used to create flow rule in ONOS"`
+	Interval	   time.Duration `default:"30s" envconfig:"INTERVAL" desc:"Frequency to check for correct flows"`
 	LogLevel           string `default:"warning" envconfig:"LOG_LEVEL" desc:"detail level for logging"`
 	LogFormat          string `default:"text" envconfig:"LOG_FORMAT" desc:"log output format, text or json"`
 }
@@ -63,5 +65,14 @@ func main() {
 
 	log.Info("Starting OVS Extra Flow Manager (letmein)")
 
-	app.Synchronize()
+	/*
+	 * Synchronization should be triggered by events in ONOS, but as we can't get events from
+	 * ONOS we use a polling loop.
+	 */
+	for {
+		log.Infof("Synchronize required S-TAG VIDs from ONOS to OVS switch %s", app.OvsDpid)
+		app.Synchronize()
+                log.Info("COMPLETE")
+		time.Sleep(app.Interval)
+	}
 }
