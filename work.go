@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/Jeffail/gabs"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -30,12 +29,12 @@ type RuleData struct {
 	VlanId string
 }
 
-func (fw *FlowWorker) Synchronize(onos string, dpid string) {
+func (app *Application) Synchronize() {
 
 	// Fetch network config to get access to the list of access device VLAN IDs
-	resp, err := http.Get(fmt.Sprintf(NETCFG_URL, onos))
+	resp, err := http.Get(fmt.Sprintf(NETCFG_URL, app.OnosConnectUrl))
 	if err != nil {
-		log.Printf("Unable to read ONOS network configuration : %s", err)
+		log.Warnf("Unable to read ONOS network configuration : %s", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -44,7 +43,7 @@ func (fw *FlowWorker) Synchronize(onos string, dpid string) {
 	decoder.Decode(&raw)
 	netcfg, err := gabs.Consume(raw)
 	if err != nil {
-		log.Printf("Unable to consume JSON : %s", err)
+		log.Warnf("Unable to consume JSON : %s", err)
 		return
 	}
 
@@ -69,12 +68,13 @@ func (fw *FlowWorker) Synchronize(onos string, dpid string) {
 	}
 	need["2"] = false
 	need["6"] = false
-	log.Printf("NEED: %+v\n", need)
+	log.Debugf("NEED: %+v\n", need)
 
 	// Fetch the current rules on the switch
-	resp, err = http.Get(fmt.Sprintf(FLOWS_URL, onos, dpid))
+	resp, err = http.Get(fmt.Sprintf(FLOWS_URL, app.OnosConnectUrl, app.OvsDpid))
 	if err != nil {
-		log.Printf("Unable to read ONOS flows for swtich %s: %s", dpid, err)
+		log.Warnf("Unable to read ONOS flows for swtich %s: %s", app.OvsDpid, err)
+		return
 	}
 	defer resp.Body.Close()
 	decoder = json.NewDecoder(resp.Body)
@@ -105,7 +105,7 @@ func (fw *FlowWorker) Synchronize(onos string, dpid string) {
 					need[vlan] = true
 				} else {
 					// Rule is not needed, delete it
-					log.Printf("DELETE: %s\n", flow.Path("id"))
+					log.Debugf("DELETE: %s\n", flow.Path("id"))
 				}
 			}
 		}
@@ -113,10 +113,10 @@ func (fw *FlowWorker) Synchronize(onos string, dpid string) {
 
 	// Iterate over all the required VLANs and if we don't have a rule for them
 	// then add them
-	rule := template.New("rule.tmpl")
-	_, err = rule.ParseFiles("rule.tmpl")
+	rule := template.New(app.CreateFlowTemplate)
+	_, err = rule.ParseFiles(app.CreateFlowTemplate)
 	if err != nil {
-		log.Printf("ERROR: %s\n", err)
+		log.Warnf("Unable to parse rule creation template '%s' : %s", app.CreateFlowTemplate, err)
 	}
 	for vlan, have := range need {
 		if have {
@@ -126,7 +126,7 @@ func (fw *FlowWorker) Synchronize(onos string, dpid string) {
 		log.Printf("Need rule for VLAN %s, create\n", vlan)
 		data := RuleData{
 			AppId:  APP_ID,
-			DPID:   dpid,
+			DPID:   app.OvsDpid,
 			VlanId: vlan,
 		}
 		err := rule.Execute(os.Stdout, &data)
