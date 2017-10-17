@@ -51,3 +51,26 @@ file:
     }
 }
 ```
+
+### configuration
+This container is configured via environment variables
+| KEY | VALUE | DESCRIPTION |
+| --- | --- | --- |
+| `ONOS_CONNECT_URL` | `http://karaf:karaf@onos:8181` | URL with which to connect to ONOS |
+| `OVS_DPID` | `:discover` | DPID of switch to manager |
+| `OVS_PORT` | `:discover` | Port on OVS switch to provision |
+| `CREATE_FLOW_TEMPLATE` | `/var/templates/create.tmpl` | Template file used to create flow rule in ONOS |
+ | `INTERVAL` | `30s` | Frequency to check for correct flows |
+| `VERIFY` | `false` | When true, just log changes that would be made, but don't make changes |
+| `LOG_LEVEL` | `info` | detail level for logging |
+| `LOG_FORMAT` | `text` | log output format, text or json |
+
+The value `:discover` for the options `OVS_DPID` and `OVS_PORT` is used to
+indicate to the container that heuristics should be used to identify the
+OVS switch and its port in ONOS. The heuristics used are:
+- `OVS_DPID` - based on the device attributes, as queried from ONOS, the first
+  switch found where the "hw" value is "Open vSwitch", the "driver" value is
+  "ovs", and the device is "available" is selected.
+- `OVS_PORT` - based on the port attributes, as queried from ONOS, the first
+  port on the selected switch where the port is not "local" and it is "enabled"
+  is selected.
