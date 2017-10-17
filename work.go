@@ -177,7 +177,7 @@ func (app *Application) Synchronize() {
 				continue
 			}
 
-			log.Info(string(data))
+			log.Infof("\nDATA: %s", string(data))
 		} else {
 			resp, err := http.Post(fmt.Sprintf(FLOWS_URL, app.OnosConnectUrl, app.OvsDpid), "application/json", buf)
 			if err != nil {
