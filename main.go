@@ -21,8 +21,8 @@ are the configuration values:
 
 type Application struct {
 	OnosConnectUrl     string        `default:"http://karaf:karaf@127.0.0.1:8181" envconfig:"ONOS_CONNECT_URL" desc:"URL with which to connect to ONOS"`
-	OvsDpid            string        `default:"of:00000800276f723f" envconfig:"OVS_DPID" desc:"DPID of switch to manager"`
-	OvsPort            string        `default:"1" envconfig:"OVS_PORT" desc:"Port on OVS switch to provision"`
+	OvsDpid            string        `default:":discover" envconfig:"OVS_DPID" desc:"DPID of switch to manager"`
+	OvsPort            string        `default:":discover" envconfig:"OVS_PORT" desc:"Port on OVS switch to provision"`
 	CreateFlowTemplate string        `default:"/var/templates/create.tmpl" envconfig:"CREATE_FLOW_TEMPLATE" desc:"Template file used to create flow rule in ONOS"`
 	Interval           time.Duration `default:"30s" envconfig:"INTERVAL" desc:"Frequency to check for correct flows"`
 	Verify             bool          `default:"false" envconfig:"VERIFY" desc:"When true, just log changes that would be made, but don't make changes"`

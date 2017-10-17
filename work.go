@@ -18,9 +18,12 @@ const (
 	FLOWS           = "flows"
 	KEY_APP_ID      = "appId"
 	NETCFG_URL      = "%s/onos/v1/network/configuration"
+	DEVICES_URL     = "%s/onos/v1/devices"
+	PORTS_URL       = "%s/onos/v1/devices/%s/ports"
 	FLOWS_URL       = "%s/onos/v1/flows/%s"
 	DELETE_FLOW_URL = "%s/onos/v1/flows/%s/%s"
 	APP_ID          = "com.ciena"
+	DISCOVER        = ":discover"
 )
 
 type FlowWorker struct{}
@@ -34,6 +37,102 @@ type RuleData struct {
 
 func (app *Application) Synchronize() {
 
+	/*
+	 * If the DPID is set to ":discover" then attempt to use hueristics to determine the device
+	 * in ONOS to use. The hueristic is simple, if the "hw" is "Open vSwtich", the "driver"
+	 * is "ovs", and it is "available" then it is our switch. The first match is taken.
+	 */
+	dpid := app.OvsDpid
+	if dpid == DISCOVER {
+		resp, err := http.Get(fmt.Sprintf(DEVICES_URL, app.OnosConnectUrl))
+		if err != nil {
+			log.Errorf("Unable to discover OVS switch to configure : %s", err)
+			return
+		}
+		defer resp.Body.Close()
+		if int(resp.StatusCode/100) != 2 {
+			log.Errorf("Error response code whilst querying for devices to discover OVS switch : %s",
+				resp.Status)
+			return
+		}
+		decoder := json.NewDecoder(resp.Body)
+		var raw map[string]interface{}
+		err = decoder.Decode(&raw)
+		if err != nil {
+			log.Errorf("Unable to decode devices response from ONOS : %s", err)
+			return
+		}
+		wrapper, err := gabs.Consume(raw)
+		if err != nil {
+			log.Errorf("Unable to consume devices JSON object : %s", err)
+			return
+		}
+
+		devices, err := wrapper.Path("devices").Children()
+		if err != nil {
+			log.Errorf("Unable to query list of devices from ONOS : %s", err)
+			return
+		}
+		for _, device := range devices {
+			if device.Path("hw").Data().(string) == "Open vSwitch" &&
+				device.Path("driver").Data().(string) == "ovs" && device.Path("available").Data().(bool) {
+				dpid = device.Path("id").Data().(string)
+			}
+		}
+		if dpid == DISCOVER {
+			// Unable to discover OVS switch
+			log.Error("Unable to discover OVS switch from ONOS, please specify DPID")
+			return
+		}
+	}
+
+	/*
+	 * If the PORT is set to ":discover" then attempt to use a hueristic to determine the PORT
+	 * of the switch to use. The hueristic is simple, the first non-"local" and "enabled" port
+	 * will be used.
+	 */
+	inPort := app.OvsPort
+	if inPort == DISCOVER {
+		resp, err := http.Get(fmt.Sprintf(PORTS_URL, app.OnosConnectUrl, dpid))
+		if err != nil {
+			log.Errorf("Unable to discover OVS switch ports for switch %s : %s", dpid, err)
+			return
+		}
+		defer resp.Body.Close()
+		if int(resp.StatusCode/100) != 2 {
+			log.Errorf("Error response whilst querying for device ports from switch %s : %s", dpid, err)
+			return
+		}
+		decoder := json.NewDecoder(resp.Body)
+		var raw map[string]interface{}
+		err = decoder.Decode(&raw)
+		if err != nil {
+			log.Errorf("Unable to decode ports response from ONOS : %s", err)
+			return
+		}
+		wrapper, err := gabs.Consume(raw)
+		if err != nil {
+			log.Errorf("Unable to consume ports JSON object : %s", err)
+			return
+		}
+
+		ports, err := wrapper.Path("ports").Children()
+		if err != nil {
+			log.Errorf("Unable to query list of ports from JSON object : %s", err)
+			return
+		}
+		for _, port := range ports {
+			if port.Path("isEnabled").Data().(bool) && port.Path("port").Data().(string) != "local" {
+				inPort = port.Path("port").Data().(string)
+			}
+		}
+		if inPort == DISCOVER {
+			// Unable to discover OVS switch port
+			log.Errorf("Unable to discover port on switch %s", dpid)
+			return
+		}
+	}
+
 	// Fetch network config to get access to the list of access device VLAN IDs
 	resp, err := http.Get(fmt.Sprintf(NETCFG_URL, app.OnosConnectUrl))
 	if err != nil {
@@ -41,6 +140,10 @@ func (app *Application) Synchronize() {
 		return
 	}
 	defer resp.Body.Close()
+	if int(resp.StatusCode/100) != 2 {
+		log.Errorf("Unable to query ONOS network configuration : %s", resp.Status)
+		return
+	}
 	decoder := json.NewDecoder(resp.Body)
 	var raw map[string]interface{}
 	decoder.Decode(&raw)
@@ -77,9 +180,9 @@ func (app *Application) Synchronize() {
 	log.Debugf("Need rules for VLANs %v", keys)
 
 	// Fetch the current rules on the switch
-	resp, err = http.Get(fmt.Sprintf(FLOWS_URL, app.OnosConnectUrl, app.OvsDpid))
+	resp, err = http.Get(fmt.Sprintf(FLOWS_URL, app.OnosConnectUrl, dpid))
 	if err != nil {
-		log.Warnf("Unable to read ONOS flows for swtich %s: %s", app.OvsDpid, err)
+		log.Warnf("Unable to read ONOS flows for swtich %s: %s", dpid, err)
 		return
 	}
 	defer resp.Body.Close()
@@ -116,7 +219,7 @@ func (app *Application) Synchronize() {
 						client := &http.Client{}
 						req, err := http.NewRequest(http.MethodDelete,
 							fmt.Sprintf(DELETE_FLOW_URL, app.OnosConnectUrl,
-								app.OvsDpid, flow.Path("id").Data().(string)), nil)
+								dpid, flow.Path("id").Data().(string)), nil)
 						if err != nil {
 							log.Errorf("Unable to create DELETE request for flow rule for VLAN %s  : %s", flow.Path("id"), vlan, err)
 							continue
@@ -153,9 +256,9 @@ func (app *Application) Synchronize() {
 		log.Infof("[CREATE] VLAN %s rule", vlan)
 		data := RuleData{
 			AppId:  APP_ID,
-			DPID:   app.OvsDpid,
+			DPID:   dpid,
 			VlanId: vlan,
-			InPort: app.OvsPort,
+			InPort: inPort,
 		}
 
 		// Create a POST to ONOS
@@ -179,7 +282,7 @@ func (app *Application) Synchronize() {
 
 			log.Infof("\nDATA: %s", string(data))
 		} else {
-			resp, err := http.Post(fmt.Sprintf(FLOWS_URL, app.OnosConnectUrl, app.OvsDpid), "application/json", buf)
+			resp, err := http.Post(fmt.Sprintf(FLOWS_URL, app.OnosConnectUrl, dpid), "application/json", buf)
 			if err != nil {
 				log.Errorf("Error while POSTing rule for VLAN %s to ONOS : %s", vlan, err)
 				continue
