@@ -12,14 +12,15 @@ import (
 )
 
 const (
-	DEVICES       = "devices"
-	ACCESS_DEVICE = "accessDevice"
-	VLAN          = "vlan"
-	FLOWS         = "flows"
-	KEY_APP_ID    = "appId"
-	NETCFG_URL    = "%s/onos/v1/network/configuration"
-	FLOWS_URL     = "%s/onos/v1/flows/%s"
-	APP_ID        = "com.ciena"
+	DEVICES         = "devices"
+	ACCESS_DEVICE   = "accessDevice"
+	VLAN            = "vlan"
+	FLOWS           = "flows"
+	KEY_APP_ID      = "appId"
+	NETCFG_URL      = "%s/onos/v1/network/configuration"
+	FLOWS_URL       = "%s/onos/v1/flows/%s"
+	DELETE_FLOW_URL = "%s/onos/v1/flows/%s/%s"
+	APP_ID          = "com.ciena"
 )
 
 type FlowWorker struct{}
@@ -28,6 +29,7 @@ type RuleData struct {
 	AppId  string
 	DPID   string
 	VlanId string
+	InPort string
 }
 
 func (app *Application) Synchronize() {
@@ -109,7 +111,27 @@ func (app *Application) Synchronize() {
 					need[vlan] = true
 				} else {
 					// Rule is not needed, delete it
-					log.Infof("[DELETE]: VLAN %s rule", flow.Path("id"))
+					log.Infof("[DELETE]: VLAN %s rule (%s)", vlan, flow.Path("id"))
+					if !app.Verify {
+						client := &http.Client{}
+						req, err := http.NewRequest(http.MethodDelete,
+							fmt.Sprintf(DELETE_FLOW_URL, app.OnosConnectUrl,
+								app.OvsDpid, flow.Path("id").Data().(string)), nil)
+						if err != nil {
+							log.Errorf("Unable to create DELETE request for flow rule for VLAN %s  : %s", flow.Path("id"), vlan, err)
+							continue
+						}
+						resp, err := client.Do(req)
+						if err != nil {
+							log.Errorf("Unable to DELETE flow rule '%s' for VLAN %s : %s", flow.Path("id"), vlan, err)
+							continue
+						}
+						defer resp.Body.Close()
+						if int(resp.StatusCode/100) != 2 {
+							log.Errorf("Error response code while DELETEing flow fule '%s' for VLAN %s : %s", flow.Path("id"), vlan, resp.Status)
+							continue
+						}
+					}
 				}
 			}
 		}
@@ -120,7 +142,7 @@ func (app *Application) Synchronize() {
 	rule := template.New(path.Base(app.CreateFlowTemplate))
 	_, err = rule.ParseFiles(app.CreateFlowTemplate)
 	if err != nil {
-		log.Warnf("Unable to parse rule creation template '%s' : %s", app.CreateFlowTemplate, err)
+		log.Errorf("Unable to parse rule creation template '%s' : %s", app.CreateFlowTemplate, err)
 		return
 	}
 	for vlan, have := range need {
@@ -133,22 +155,40 @@ func (app *Application) Synchronize() {
 			AppId:  APP_ID,
 			DPID:   app.OvsDpid,
 			VlanId: vlan,
+			InPort: app.OvsPort,
 		}
 
 		// Create a POST to ONOS
 		buf := bytes.NewBuffer(nil)
 		err := rule.Execute(buf, &data)
 		if err != nil {
-			log.Warnf("Unable to execute create rule template: %s", err)
+			log.Errorf("Unable to execute create rule template: %s", err)
 		}
-		resp, err := http.Post(fmt.Sprintf(FLOWS_URL, app.OnosConnectUrl, app.OvsDpid), "application/json", buf)
-		if err != nil {
-			log.Errorf("Error while POSTing rule add to ONOS : %s", err)
-			continue
-		}
-		if int(resp.StatusCode/100) != 2 {
-			log.Errorf("Error response code while POSTing rule to ONOS : %s", resp.Status)
-			continue
+		if app.Verify {
+			var val map[string]interface{}
+			err = json.Unmarshal(buf.Bytes(), &val)
+			if err != nil {
+				log.Errorf("Unable to parse POST data : %s", err)
+				continue
+			}
+			data, err := json.MarshalIndent(&val, "DATA: ", "    ")
+			if err != nil {
+				log.Errorf("Unable to pretty print POST data : %s", err)
+				continue
+			}
+
+			log.Info(string(data))
+		} else {
+			resp, err := http.Post(fmt.Sprintf(FLOWS_URL, app.OnosConnectUrl, app.OvsDpid), "application/json", buf)
+			if err != nil {
+				log.Errorf("Error while POSTing rule for VLAN %s to ONOS : %s", vlan, err)
+				continue
+			}
+			defer resp.Body.Close()
+			if int(resp.StatusCode/100) != 2 {
+				log.Errorf("Error response code while POSTing flow rule for VLAN %s to ONOS : %s", vlan, resp.Status)
+				continue
+			}
 		}
 	}
 }
