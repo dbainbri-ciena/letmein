@@ -54,6 +54,7 @@ file:
 
 ### configuration
 This container is configured via environment variables
+
 | KEY | VALUE | DESCRIPTION |
 | --- | --- | --- |
 | `ONOS_CONNECT_URL` | `http://karaf:karaf@onos:8181` | URL with which to connect to ONOS |
